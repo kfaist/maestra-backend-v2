@@ -15,7 +15,8 @@ app.use(express.static('public'));
 // ── In-memory state ──────────────────────────────────────────────────────────
 const entities = new Map();   // id → entity object
 const streams  = new Map();   // streamName → { data, ts }
-let   latestFrame = null;     // latest video frame buffer (base64 or binary)
+let   latestFrame = null;       // latest frame as base64 string
+let   latestFrameBuffer = null; // latest frame as raw Buffer
 let   latestFrameTs = 0;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -108,25 +109,57 @@ app.post('/streams/:name', (req, res) => {
 
 // ── REST: Video frame ─────────────────────────────────────────────────────────
 // POST /video/frame/td — TD posts raw JPEG bytes or base64
-app.post('/video/frame/td', (req, res) => {
-  // Accept JSON { frame: '<base64>' } or raw body
-  if (req.body && req.body.frame) {
+// Accept raw binary (Content-Type: image/jpeg) OR JSON {frame: base64}
+app.post('/video/frame/td', express.raw({ type: '*/*', limit: '10mb' }), (req, res) => {
+  if (req.body && Buffer.isBuffer(req.body) && req.body.length > 0) {
+    // Raw binary — store as buffer
+    latestFrameBuffer = req.body;
+    latestFrame = null; // clear base64 cache
+  } else if (req.body && req.body.frame) {
+    // JSON with base64
     latestFrame = req.body.frame;
-  } else {
-    // fallback: treat body as raw base64 string
-    latestFrame = req.body.toString ? req.body.toString() : null;
+    latestFrameBuffer = null;
+  } else if (req.body) {
+    // Try treating as raw buffer
+    latestFrameBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
+    latestFrame = null;
   }
   latestFrameTs = Date.now();
   broadcast({ type: 'frame', ts: latestFrameTs });
   res.json({ ok: true, ts: latestFrameTs });
 });
 
-// GET /video/frame/td — dashboard polls for latest frame
+// GET /video/frame/td — dashboard polls for latest frame — returns raw JPEG bytes
 app.get('/video/frame/td', (req, res) => {
-  if (!latestFrame) return res.status(204).send();
-  // If older than 5s treat as stale
-  if (Date.now() - latestFrameTs > 5000) return res.status(204).send();
-  res.json({ frame: latestFrame, ts: latestFrameTs });
+  if (!latestFrameBuffer && !latestFrame) return res.status(204).send();
+  if (Date.now() - latestFrameTs > 10000) return res.status(204).send(); // 10s stale
+  if (latestFrameBuffer) {
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'no-store');
+    return res.send(latestFrameBuffer);
+  }
+  // base64 path — decode and send as binary
+  const buf = Buffer.from(latestFrame, 'base64');
+  res.set('Content-Type', 'image/jpeg');
+  res.set('Cache-Control', 'no-store');
+  res.send(buf);
+});
+
+// ── REST: Audio reactivity ────────────────────────────────────────────────────
+// POST /audio — accepts frequency band data, broadcasts to all WS clients
+// Expected body: { sub, bass, mid, high, rms, spectral_centroid, bpm? }
+let latestAudio = null;
+
+app.post('/audio', (req, res) => {
+  latestAudio = { ...req.body, ts: Date.now() };
+  broadcast({ type: 'audio', data: latestAudio });
+  res.json({ ok: true });
+});
+
+app.get('/audio', (req, res) => {
+  if (!latestAudio) return res.status(204).send();
+  if (Date.now() - latestAudio.ts > 5000) return res.status(204).send();
+  res.json(latestAudio);
 });
 
 // ── REST: Heartbeat / health ──────────────────────────────────────────────────
