@@ -129,20 +129,36 @@ app.post('/video/frame/td', express.raw({ type: '*/*', limit: '10mb' }), (req, r
   res.json({ ok: true, ts: latestFrameTs });
 });
 
-// GET /video/frame/td — dashboard polls for latest frame — returns raw JPEG bytes
-app.get('/video/frame/td', (req, res) => {
-  if (!latestFrameBuffer && !latestFrame) return res.status(204).send();
-  if (Date.now() - latestFrameTs > 10000) return res.status(204).send(); // 10s stale
-  if (latestFrameBuffer) {
-    res.set('Content-Type', 'image/jpeg');
+// GET /video/frame/td — proxy from original Maestra server
+// TD posts to maestra-dashboard-production.up.railway.app — we relay it here
+const UPSTREAM_FRAME_URL = 'https://maestra-dashboard-production.up.railway.app/video/frame/td';
+app.get('/video/frame/td', async (req, res) => {
+  try {
+    const upstream = await fetch(`${UPSTREAM_FRAME_URL}?t=${Date.now()}`, {
+      headers: { 'Cache-Control': 'no-store' }
+    });
+    if (!upstream.ok) {
+      // Fall back to locally stored frame if upstream fails
+      if (latestFrameBuffer) {
+        res.set('Content-Type', 'image/jpeg');
+        res.set('Cache-Control', 'no-store');
+        return res.send(latestFrameBuffer);
+      }
+      return res.status(204).send();
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg');
     res.set('Cache-Control', 'no-store');
-    return res.send(latestFrameBuffer);
+    res.send(buf);
+  } catch (e) {
+    // Fall back to locally stored frame
+    if (latestFrameBuffer) {
+      res.set('Content-Type', 'image/jpeg');
+      res.set('Cache-Control', 'no-store');
+      return res.send(latestFrameBuffer);
+    }
+    res.status(204).send();
   }
-  // base64 path — decode and send as binary
-  const buf = Buffer.from(latestFrame, 'base64');
-  res.set('Content-Type', 'image/jpeg');
-  res.set('Cache-Control', 'no-store');
-  res.send(buf);
 });
 
 // ── REST: Audio reactivity ────────────────────────────────────────────────────
