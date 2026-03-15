@@ -260,26 +260,6 @@ setInterval(() => {
   });
 }, 5000);
 
-// ── Transcription relay — poll upstream Maestra for p5/p6 state ──────────────
-const UPSTREAM_ENTITIES = 'https://maestra-dashboard-production.up.railway.app/entities';
-let _lastP6 = '';
-setInterval(async () => {
-  try {
-    const res = await fetch(UPSTREAM_ENTITIES);
-    if (!res.ok) return;
-    const entities_list = await res.json();
-    const mirror = entities_list.find(e => e.name && e.name.includes("Mirror"));
-    if (!mirror || !mirror.state) return;
-    const p6 = mirror.state.p6 || '';
-    const p5 = mirror.state.p5 || '';
-    if (p6 && p6 !== _lastP6) {
-      _lastP6 = p6;
-      const nouns = p5 ? [p5] : [];
-      broadcast({ type: 'transcription', text: p6, nouns, ts: Date.now() });
-    }
-  } catch(e) { /* silent */ }
-}, 1500);
-
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
