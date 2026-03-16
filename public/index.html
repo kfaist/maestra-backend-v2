@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Join Node</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <button id="joinNodeButton">Join Node</button>
+    </header>
+    <main>
+        <!-- Join Modal -->
+        <div id="joinModal" style="display: none;">
+            <h2>Join Node</h2>
+            <div>
+                <label for="serverUrl">Server URL:</label>
+                <input type="text" id="serverUrl" value="https://example.com">
+                <button onclick="copyToClipboard('serverUrl')">Copy</button>
+            </div>
+            <div>
+                <label for="entityId">Entity ID:</label>
+                <input type="text" id="entityId" value="12345">
+                <button onclick="copyToClipboard('entityId')">Copy</button>
+            </div>
+            <button onclick="closeModal()">Close</button>
+        </div>
+
+        <!-- Setup Instructions Card -->
+        <div id="setupInstructions">
+            <h3>TD Setup Instructions</h3>
+            <p>Follow these steps to set up your TD.</p>
+            <!-- Instructions go here -->
+        </div>
+
+        <button id="downloadTOXButton">Download TOX</button>
+    </main>
+    <script>
+        function copyToClipboard(elementId) {
+            var copyText = document.getElementById(elementId);
+            copyText.select();
+            document.execCommand("copy");
+        }
+
+        // Auto reconnect from localStorage
+        window.onload = function() {
+            var connection = localStorage.getItem('connection');
+            if (connection) {
+                // Logic to auto reconnect
+            }
+        };
+
+        // Auto-inject every 5 seconds
+        setInterval(function() {
+            // Logic to auto-inject
+        }, 5000);
+
+        // p6 flush 5 seconds after broadcast with LFO9 pulsing 2x on prompt
+        function broadcast() {
+            // Logic for broadcast
+            setTimeout(function() {
+                // Logic for p6 flush
+            }, 5000);
+        }
+
+        // Remove "Each new visitor connection" text
+        document.addEventListener('DOMContentLoaded', function() {
+            // Logic to remove specific text
+        });
+    </script>
+</body>
+</html>
