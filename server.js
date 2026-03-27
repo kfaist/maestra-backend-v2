@@ -15,6 +15,7 @@ app.use(express.static('public'));
 // ── In-memory state ──────────────────────────────────────────────────────────
 const entities = new Map();   // id → entity object
 const streams  = new Map();   // streamName → { data, ts }
+const entityFrames = new Map(); // entityId → { buffer, ts }
 let   latestFrame = null;       // latest frame as base64 string
 let   latestFrameBuffer = null; // latest frame as raw Buffer
 let   latestFrameTs = 0;
@@ -159,6 +160,44 @@ app.get('/video/frame/td', async (req, res) => {
     }
     res.status(204).send();
   }
+});
+
+// ── REST: Per-entity video frames ────────────────────────────────────────────
+// POST /video/frame/:entityId — any entity posts raw JPEG bytes
+app.post('/video/frame/:entityId', express.raw({ type: '*/*', limit: '10mb' }), (req, res) => {
+  const eid = req.params.entityId;
+  let buf;
+  if (req.body && Buffer.isBuffer(req.body) && req.body.length > 0) {
+    buf = req.body;
+  } else if (req.body) {
+    buf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
+  }
+  if (!buf || buf.length < 100) return res.status(400).json({ error: 'Frame too small' });
+  const ts = Date.now();
+  entityFrames.set(eid, { buffer: buf, ts });
+  // Also update the global frame for backward compat
+  if (eid === 'td') { latestFrameBuffer = buf; latestFrame = null; latestFrameTs = ts; }
+  broadcast({ type: 'frame', entity_id: eid, ts });
+  res.json({ ok: true, entity_id: eid, ts });
+});
+
+// GET /video/frame/:entityId — serve latest frame for any entity
+app.get('/video/frame/:entityId', (req, res) => {
+  const eid = req.params.entityId;
+  const entry = entityFrames.get(eid);
+  if (entry && entry.buffer) {
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'no-store');
+    res.set('X-Frame-Age-Ms', String(Date.now() - entry.ts));
+    return res.send(entry.buffer);
+  }
+  // Fallback: try global frame for any entity
+  if (latestFrameBuffer) {
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'no-store');
+    return res.send(latestFrameBuffer);
+  }
+  res.status(404).json({ error: 'No frame for ' + eid });
 });
 
 // ── REST: Audio reactivity ────────────────────────────────────────────────────
