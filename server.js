@@ -16,6 +16,7 @@ app.use(express.static('public'));
 const entities = new Map();   // id → entity object
 const streams  = new Map();   // streamName → { data, ts }
 const entityFrames = new Map(); // entityId → { buffer, ts }
+const slotLocks = new Map();    // entityId → { token, lockedAt, lockedBy }
 let   latestFrame = null;       // latest frame as base64 string
 let   latestFrameBuffer = null; // latest frame as raw Buffer
 let   latestFrameTs = 0;
@@ -163,9 +164,23 @@ app.get('/video/frame/td', async (req, res) => {
 });
 
 // ── REST: Per-entity video frames ────────────────────────────────────────────
-// POST /video/frame/:entityId — any entity posts raw JPEG bytes
+// POST /video/frame/:entityId — any entity posts raw JPEG bytes (with slot locking)
 app.post('/video/frame/:entityId', express.raw({ type: '*/*', limit: '10mb' }), (req, res) => {
   const eid = req.params.entityId;
+  const incomingToken = req.headers['x-lock-token'] || null;
+  const lockInfo = slotLocks.get(eid);
+
+  // SLOT LOCKING: if slot is locked and token doesn't match, reject
+  if (lockInfo && incomingToken !== lockInfo.token) {
+    return res.status(403).json({
+      error: 'Slot locked',
+      entity_id: eid,
+      locked_by: lockInfo.lockedBy,
+      locked_at: lockInfo.lockedAt,
+      hint: 'Send X-Lock-Token header or POST /video/unlock/:entityId to release'
+    });
+  }
+
   let buf;
   if (req.body && Buffer.isBuffer(req.body) && req.body.length > 0) {
     buf = req.body;
@@ -173,12 +188,46 @@ app.post('/video/frame/:entityId', express.raw({ type: '*/*', limit: '10mb' }), 
     buf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
   }
   if (!buf || buf.length < 100) return res.status(400).json({ error: 'Frame too small' });
+
+  // AUTO-LOCK: if no lock exists, create one and return the token
+  let token = incomingToken;
+  if (!lockInfo) {
+    token = require('crypto').randomBytes(16).toString('hex');
+    const deviceName = req.headers['x-device-name'] || 'unknown';
+    slotLocks.set(eid, { token, lockedAt: new Date().toISOString(), lockedBy: deviceName });
+    console.log(`[LOCK] Slot "${eid}" locked by "${deviceName}" with token ${token.slice(0,8)}...`);
+  }
+
   const ts = Date.now();
   entityFrames.set(eid, { buffer: buf, ts });
   // Also update the global frame for backward compat
   if (eid === 'td') { latestFrameBuffer = buf; latestFrame = null; latestFrameTs = ts; }
   broadcast({ type: 'frame', entity_id: eid, ts });
-  res.json({ ok: true, entity_id: eid, ts });
+  res.json({ ok: true, entity_id: eid, ts, lock_token: lockInfo ? undefined : token });
+});
+
+// POST /video/unlock/:entityId — release a slot lock (needs token or master key)
+app.post('/video/unlock/:entityId', express.json(), (req, res) => {
+  const eid = req.params.entityId;
+  const lockInfo = slotLocks.get(eid);
+  if (!lockInfo) return res.json({ ok: true, message: 'Slot was not locked' });
+  const token = req.headers['x-lock-token'] || req.body?.token;
+  const masterKey = req.headers['x-master-key'] || req.body?.master_key;
+  if (token === lockInfo.token || masterKey === (process.env.MASTER_KEY || 'maestra-unlock-2026')) {
+    console.log(`[UNLOCK] Slot "${eid}" unlocked (was locked by "${lockInfo.lockedBy}")`);
+    slotLocks.delete(eid);
+    return res.json({ ok: true, unlocked: eid });
+  }
+  res.status(403).json({ error: 'Invalid token or master key' });
+});
+
+// GET /video/locks — show all current slot locks
+app.get('/video/locks', (req, res) => {
+  const locks = {};
+  slotLocks.forEach((v, k) => {
+    locks[k] = { locked_by: v.lockedBy, locked_at: v.lockedAt, token_prefix: v.token.slice(0, 8) + '...' };
+  });
+  res.json(locks);
 });
 
 // GET /video/frame/:entityId — serve latest frame for any entity
