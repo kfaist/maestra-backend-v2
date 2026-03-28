@@ -170,14 +170,15 @@ app.post('/video/frame/:entityId', express.raw({ type: '*/*', limit: '10mb' }), 
   const incomingToken = req.headers['x-lock-token'] || null;
   const lockInfo = slotLocks.get(eid);
 
-  // SLOT LOCKING: if slot is locked and token doesn't match, reject
-  if (lockInfo && incomingToken !== lockInfo.token) {
+  // SLOT LOCKING: only enforce if poster explicitly opted in with X-Request-Lock
+  // (disabled auto-enforce to prevent old scripts from locking themselves out)
+  if (lockInfo && incomingToken && incomingToken !== lockInfo.token) {
     return res.status(403).json({
       error: 'Slot locked',
       entity_id: eid,
       locked_by: lockInfo.lockedBy,
       locked_at: lockInfo.lockedAt,
-      hint: 'Send X-Lock-Token header or POST /video/unlock/:entityId to release'
+      hint: 'Send correct X-Lock-Token header or POST /video/unlock/:entityId to release'
     });
   }
 
@@ -189,9 +190,10 @@ app.post('/video/frame/:entityId', express.raw({ type: '*/*', limit: '10mb' }), 
   }
   if (!buf || buf.length < 100) return res.status(400).json({ error: 'Frame too small' });
 
-  // AUTO-LOCK: if no lock exists, create one and return the token
+  // OPT-IN LOCK: only lock if script explicitly requests it via X-Request-Lock header
   let token = incomingToken;
-  if (!lockInfo) {
+  const wantsLock = req.headers['x-request-lock'] === 'true';
+  if (!lockInfo && wantsLock) {
     token = require('crypto').randomBytes(16).toString('hex');
     const deviceName = req.headers['x-device-name'] || 'unknown';
     slotLocks.set(eid, { token, lockedAt: new Date().toISOString(), lockedBy: deviceName });
