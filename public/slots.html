@@ -6,11 +6,11 @@
 <title>Maestra Slot Monitor</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:#0a0a0f; color:#e0e0e0; font-family:'SF Mono','Fira Code',monospace; padding:20px; }
-h1 { text-align:center; font-size:1.2rem; letter-spacing:4px; color:#888; margin-bottom:24px; text-transform:uppercase; }
-.grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:1200px; margin:0 auto; }
-.slot { background:#111118; border:1px solid #222; border-radius:12px; overflow:hidden; }
-.slot.locked { border-color:#2a6; }
+body { background:#0a0a0f; color:#e0e0e0; font-family:'SF Mono','Fira Code',monospace; padding:16px; }
+h1 { text-align:center; font-size:1rem; letter-spacing:4px; color:#666; margin-bottom:16px; text-transform:uppercase; }
+.grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; max-width:1600px; margin:0 auto; }
+.slot { background:#111118; border:1px solid #222; border-radius:10px; overflow:hidden; }
+.slot.streaming { border-color:#2a6; }
 .slot.offline { border-color:#633; opacity:0.7; }
 </style>
 </head>
@@ -20,155 +20,127 @@ h1 { text-align:center; font-size:1.2rem; letter-spacing:4px; color:#888; margin
 </body>
 </html>
 <style>
-.slot-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:#16161e; }
-.slot-name { font-size:1.1rem; font-weight:bold; }
-.slot-badges { display:flex; gap:6px; }
-.badge { font-size:0.65rem; padding:2px 8px; border-radius:10px; text-transform:uppercase; letter-spacing:1px; }
-.badge-locked { background:#1a3a2a; color:#4f8; }
-.badge-live { background:#3a1a1a; color:#f84; animation:pulse 2s infinite; }
-.badge-offline { background:#222; color:#666; }
-.badge-visitor { background:#1a2a3a; color:#4af; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+.slot-header { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:#16161e; }
+.slot-name { font-size:1rem; font-weight:bold; }
+.badges { display:flex; gap:5px; flex-wrap:wrap; }
+.badge { font-size:0.55rem; padding:2px 7px; border-radius:8px; text-transform:uppercase; letter-spacing:1px; }
+.b-stream { background:#1a3a2a; color:#4f8; animation:pulse 2s infinite; }
+.b-offline { background:#222; color:#666; }
+.b-visitor { background:#1a2a3a; color:#4af; }
+.b-locked { background:#2a1a1a; color:#f66; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
 .frame-wrap { position:relative; width:100%; padding-top:56.25%; background:#000; }
 .frame-wrap img { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; }
-.frame-wrap .no-frame { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#444; font-size:0.8rem; }
-.stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:12px 16px; }
-.stat { background:#0d0d14; padding:8px 12px; border-radius:8px; }
-.stat-label { font-size:0.6rem; color:#666; text-transform:uppercase; letter-spacing:1px; margin-bottom:2px; }
-.stat-value { font-size:0.95rem; color:#ccc; }
-.stat-value.fps { color:#4f8; font-weight:bold; }
-.prompt-bar { padding:8px 16px 12px; }
-.prompt-label { font-size:0.6rem; color:#666; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
-.prompt-text { font-size:0.85rem; color:#a8f; min-height:1.2em; font-style:italic; word-break:break-word; }
+.frame-wrap .no-frame { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#333; font-size:0.7rem; }
+</style>
+<style>
+.chips { display:flex; flex-wrap:wrap; gap:6px; padding:10px 14px; }
+.chip { display:flex; align-items:center; gap:5px; background:#0d0d14; padding:5px 10px; border-radius:6px; border-left:3px solid #444; }
+.chip-label { font-size:0.55rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; }
+.chip-val { font-size:0.8rem; color:#ccc; }
+.chip-fps { border-color:#22c55e; }
+.chip-fps .chip-val { color:#4ade80; font-weight:bold; }
+.chip-prompt { border-color:#a855f7; flex:1 1 100%; }
+.chip-prompt .chip-val { color:#c084fc; font-style:italic; font-size:0.75rem; word-break:break-word; }
+.chip-audio { border-color:#f59e0b; }
+.chip-audio .chip-val { color:#fbbf24; }
+.chip-visitor { border-color:#3b82f6; }
+.chip-visitor .chip-val.yes { color:#60a5fa; font-weight:bold; }
+.chip-visitor .chip-val.no { color:#555; }
+.audio-bar { width:60px; height:8px; background:#1a1a24; border-radius:4px; overflow:hidden; display:inline-block; vertical-align:middle; }
+.audio-fill { height:100%; background:linear-gradient(90deg,#f59e0b,#ef4444); border-radius:4px; transition:width 0.3s; }
 </style>
 <script>
 const BASE = window.location.origin;
-const SLOTS = ['td_operator', 'slot2'];
+const SLOTS = ['td_operator', 'slot2', 'slot3'];
 const REFRESH_MS = 2000;
-const FRAME_REFRESH_MS = 500;
+const FRAME_MS = 800;
 
-function createSlotCard(slotId) {
+function makeCard(id) {
   const el = document.createElement('div');
-  el.className = 'slot offline';
-  el.id = 'slot-' + slotId;
+  el.className = 'slot offline'; el.id = 's-' + id;
   el.innerHTML = `
     <div class="slot-header">
-      <span class="slot-name">${slotId}</span>
-      <div class="slot-badges" id="badges-${slotId}">
-        <span class="badge badge-offline">offline</span>
-      </div>
+      <span class="slot-name">${id}</span>
+      <div class="badges" id="bg-${id}"><span class="badge b-offline">offline</span></div>
     </div>
     <div class="frame-wrap">
-      <img id="frame-${slotId}" style="display:none" />
-      <div class="no-frame" id="noframe-${slotId}">no frame data</div>
+      <img id="img-${id}" style="display:none" />
+      <div class="no-frame" id="nf-${id}">no frame</div>
     </div>
-    <div class="stats">
-      <div class="stat">
-        <div class="stat-label">Frame Rate</div>
-        <div class="stat-value fps" id="fps-${slotId}">-- fps</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Device</div>
-        <div class="stat-value" id="device-${slotId}">--</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Visitor</div>
-        <div class="stat-value" id="visitor-${slotId}">--</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Lock</div>
-        <div class="stat-value" id="lock-${slotId}">--</div>
-      </div>
-    </div>
-    <div class="prompt-bar">
-      <div class="prompt-label">Current Prompt</div>
-      <div class="prompt-text" id="prompt-${slotId}">waiting...</div>
-    </div>
-  `;
+    <div class="chips" id="chips-${id}">
+      <div class="chip chip-fps"><span class="chip-label">FPS</span><span class="chip-val" id="fps-${id}">--</span></div>
+      <div class="chip chip-audio"><span class="chip-label">Audio</span><span class="chip-val" id="aud-${id}">
+        <span class="audio-bar"><span class="audio-fill" id="audfill-${id}" style="width:0%"></span></span> 0.0
+      </span></div>
+      <div class="chip chip-visitor"><span class="chip-label">Visitor</span><span class="chip-val no" id="vis-${id}">--</span></div>
+      <div class="chip chip-prompt"><span class="chip-label">Prompt</span><span class="chip-val" id="pr-${id}">waiting...</span></div>
+    </div>`;
   return el;
 }
+const grid = document.getElementById('grid');
+SLOTS.forEach(id => grid.appendChild(makeCard(id)));
 </script>
 <script>
-const grid = document.getElementById('grid');
-SLOTS.forEach(id => grid.appendChild(createSlotCard(id)));
-
 let locks = {};
-
-async function fetchLocks() {
-  try {
-    const r = await fetch(BASE + '/video/locks');
-    locks = await r.json();
-  } catch(e) { locks = {}; }
-}
-
-async function fetchState(slotId) {
-  try {
-    const r = await fetch(BASE + '/entities');
-    const entities = await r.json();
-    const entity = entities.find(e => e.id === slotId || e.slug === slotId);
-    if (!entity) return null;
-    return entity;
-  } catch(e) { return null; }
-}
-
-function updateSlot(slotId, entity) {
-  const card = document.getElementById('slot-' + slotId);
-  const badges = document.getElementById('badges-' + slotId);
-  const state = entity?.state || {};
-  const isLocked = !!locks[slotId];
-  const isActive = entity?.status === 'active';
-  const hasVisitor = state.visitor_present;
-
-  card.className = 'slot' + (isLocked ? ' locked' : '') + (!isActive ? ' offline' : '');
-
-  let badgeHtml = '';
-  if (isActive) badgeHtml += '<span class="badge badge-live">live</span>';
-  else badgeHtml += '<span class="badge badge-offline">offline</span>';
-  if (isLocked) badgeHtml += '<span class="badge badge-locked">locked</span>';
-  if (hasVisitor) badgeHtml += '<span class="badge badge-visitor">visitor</span>';
-  badges.innerHTML = badgeHtml;
-
-  document.getElementById('fps-' + slotId).textContent =
-    state.fps != null ? state.fps.toFixed(1) + ' fps' : '-- fps';
-  document.getElementById('device-' + slotId).textContent =
-    state.device || locks[slotId]?.locked_by || '--';
-  document.getElementById('visitor-' + slotId).textContent =
-    hasVisitor ? 'YES' : 'no';
-  document.getElementById('lock-' + slotId).textContent =
-    isLocked ? locks[slotId].token_prefix : 'unlocked';
-  document.getElementById('prompt-' + slotId).textContent =
-    state.prompt_text || 'waiting...';
-}
-
-function refreshFrame(slotId) {
-  const img = document.getElementById('frame-' + slotId);
-  const noframe = document.getElementById('noframe-' + slotId);
-  const url = BASE + '/video/frame/' + slotId + '?t=' + Date.now();
-  const testImg = new Image();
-  testImg.onload = () => {
-    img.src = testImg.src;
-    img.style.display = 'block';
-    noframe.style.display = 'none';
-  };
-  testImg.onerror = () => {
-    img.style.display = 'none';
-    noframe.style.display = 'block';
-  };
-  testImg.src = url;
-}
-
 async function poll() {
-  await fetchLocks();
-  for (const slotId of SLOTS) {
-    const entity = await fetchState(slotId);
-    updateSlot(slotId, entity);
+  try { locks = await (await fetch(BASE+'/video/locks')).json(); } catch(e) { locks={}; }
+  let entities = [];
+  try { entities = await (await fetch(BASE+'/entities')).json(); } catch(e) {}
+
+  for (const id of SLOTS) {
+    const ent = entities.find(e => e.id === id || e.slug === id);
+    const st = ent?.state || {};
+    const lock = locks[id];
+    const isActive = ent?.status === 'active';
+
+    // Frame freshness check
+    let fresh = false;
+    try {
+      const r = await fetch(BASE+'/video/frame/'+id, {method:'HEAD'});
+      const age = parseInt(r.headers.get('X-Frame-Age-Ms') || '999999');
+      fresh = age < 10000;
+    } catch(e) {}
+
+    const streaming = isActive && fresh;
+    const card = document.getElementById('s-'+id);
+    card.className = 'slot' + (streaming ? ' streaming' : ' offline');
+
+    // Badges
+    let bh = '';
+    if (streaming) bh += '<span class="badge b-stream">live</span>';
+    else bh += '<span class="badge b-offline">offline</span>';
+    if (lock) bh += '<span class="badge b-locked">locked</span>';
+    if (st.visitor_present) bh += '<span class="badge b-visitor">visitor</span>';
+    document.getElementById('bg-'+id).innerHTML = bh;
+
+    // Chips
+    const fps = st.fps != null ? st.fps.toFixed(1) : '--';
+    document.getElementById('fps-'+id).textContent = fps + ' fps';
+
+    const amp = st.audio_amplitude != null ? st.audio_amplitude : 0;
+    const ampPct = Math.min(100, Math.round(amp * 100));
+    document.getElementById('audfill-'+id).style.width = ampPct + '%';
+    document.getElementById('aud-'+id).innerHTML =
+      '<span class="audio-bar"><span class="audio-fill" id="audfill-'+id+'" style="width:'+ampPct+'%"></span></span> ' + amp.toFixed(2);
+
+    const visEl = document.getElementById('vis-'+id);
+    visEl.textContent = st.visitor_present ? 'YES' : 'no';
+    visEl.className = 'chip-val ' + (st.visitor_present ? 'yes' : 'no');
+
+    document.getElementById('pr-'+id).textContent = st.prompt_text || 'waiting...';
   }
 }
 
-poll();
-setInterval(poll, REFRESH_MS);
-SLOTS.forEach(id => {
-  refreshFrame(id);
-  setInterval(() => refreshFrame(id), FRAME_REFRESH_MS);
-});
+function refreshFrame(id) {
+  const img = document.getElementById('img-'+id);
+  const nf = document.getElementById('nf-'+id);
+  const t = new Image();
+  t.onload = () => { img.src=t.src; img.style.display='block'; nf.style.display='none'; };
+  t.onerror = () => { img.style.display='none'; nf.style.display='block'; };
+  t.src = BASE+'/video/frame/'+id+'?t='+Date.now();
+}
+
+poll(); setInterval(poll, REFRESH_MS);
+SLOTS.forEach(id => { refreshFrame(id); setInterval(()=>refreshFrame(id), FRAME_MS); });
 </script>
